@@ -30,7 +30,7 @@ class SpaceSafeURI : Comparable<SpaceSafeURI>, Serializable {
 		)
 	}
 
-	val path: String get() = URIUtils.urlDecode(u.path, Charsets.UTF_8, true)
+	val path: String? get() = u.path?.let { URIUtils.urlDecode(u.path, Charsets.UTF_8, true) }
 
 	override fun toString(): String =  URIUtils.urlDecode(u.toString(), Charsets.UTF_8, true)
 
@@ -50,9 +50,9 @@ class SpaceSafeURI : Comparable<SpaceSafeURI>, Serializable {
 
 	override fun compareTo(other: SpaceSafeURI): Int = u.compareTo(other.u)
 
-	val scheme: String get() = u.scheme
-	val authority: String get() = u.authority
-	val host: String get() = u.host
+	val scheme: String? get() = u.scheme
+	val authority: String? get() = u.authority
+	val host: String? get() = u.host
 
 	@Throws(MalformedURLException::class)
 	fun toURL(): URL = u.toURL()

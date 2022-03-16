@@ -32,6 +32,7 @@ dependencies {
 	implementation("com.google.code.gson:gson:2.8.1")
 	implementation("com.squareup.okio:okio:2.9.0")
 	implementation(kotlin("stdlib-jdk8"))
+	//implementation("org.apache.httpcomponents:httpclient:4.5.13")
 }
 
 repositories {
@@ -43,7 +44,8 @@ application {
 }
 
 val gitVersion: groovy.lang.Closure<*> by extra
-version = gitVersion()
+//version = gitVersion()
+version = "v0.3.3"
 
 tasks.jar {
 	manifest {
