@@ -46,7 +46,7 @@ class IndexFile {
 			val fileStream = getHasher(hashFormat!!).getHashingSource(src)
 			linkedFile = Toml().read(fileStream.buffer().inputStream()).to(ModFile::class.java)
 			if (!fileStream.hashIsEqual(fileHash)) {
-				throw Exception("Invalid mod file hash")
+				throw Exception(String.format("Invalid mod file hash for file %s. Expected: %s Provided: %s", linkedFileURI, fileHash, fileStream.hash))
 			}
 		}
 

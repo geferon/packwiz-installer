@@ -199,7 +199,7 @@ internal class DownloadTask private constructor(val metadata: IndexFile.File, de
 				val sha256 = HashingSink.sha256(okio.blackholeSink())
 				data.readAll(sha256)
 				println("SHA256 hash value: " + sha256.hash)
-				err = Exception("Hash invalid!")
+				err = Exception(String.format("Hash invalid for file %s! Expected: %s Provided: %s", metadata.destURI, hash, fileSource.hash))
 				data.clear()
 				return
 			}
