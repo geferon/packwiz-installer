@@ -29,7 +29,7 @@ dependencies {
 	implementation("commons-cli:commons-cli:1.4")
 	shrinkClasspath("commons-cli:commons-cli:1.4")
 	implementation("com.moandjiezana.toml:toml4j:0.7.2")
-	implementation("com.google.code.gson:gson:2.8.1")
+	implementation("com.google.code.gson:gson:2.9.0")
 	implementation("com.squareup.okio:okio:2.9.0")
 	implementation(kotlin("stdlib-jdk8"))
 	//implementation("org.apache.httpcomponents:httpclient:4.5.13")
@@ -37,6 +37,7 @@ dependencies {
 
 repositories {
 	jcenter()
+	mavenCentral()
 }
 
 application {
