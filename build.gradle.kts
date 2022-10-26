@@ -1,21 +1,10 @@
-buildscript {
-	repositories {
-		mavenCentral()
-	}
-	dependencies {
-		classpath("com.guardsquare:proguard-gradle:7.1.0") {
-			exclude("com.android.tools.build")
-		}
-	}
-}
-
 plugins {
 	java
 	application
 	id("com.github.johnrengelman.shadow") version "7.1.2"
 	id("com.palantir.git-version") version "0.13.0"
-	id("com.github.breadmoirai.github-release") version "2.2.12"
-	kotlin("jvm") version "1.6.10"
+	id("com.github.breadmoirai.github-release") version "2.4.1"
+	kotlin("jvm") version "1.7.10"
 	id("com.github.jk1.dependency-license-report") version "2.0"
 	`maven-publish`
 }
@@ -26,20 +15,36 @@ java {
 
 repositories {
 	mavenCentral()
+	google()
+	maven {
+		url = uri("https://jitpack.io")
+	}
+}
+
+val r8 by configurations.creating
+val distJarOutput by configurations.creating {
+	isCanBeResolved = false
+	isCanBeConsumed = true
+
+	attributes {
+		attribute(Usage.USAGE_ATTRIBUTE, project.objects.named(Usage::class.java, Usage.JAVA_RUNTIME))
+		attribute(Bundling.BUNDLING_ATTRIBUTE, project.objects.named(Bundling::class.java, Bundling.EMBEDDED))
+	}
 }
 
 dependencies {
 	implementation("commons-cli:commons-cli:1.5.0")
-	implementation("com.moandjiezana.toml:toml4j:0.7.2")
 	implementation("com.google.code.gson:gson:2.9.0")
-	implementation("com.squareup.okio:okio:3.0.0")
+	implementation("com.squareup.okio:okio:3.1.0")
 	implementation(kotlin("stdlib-jdk8"))
-	implementation("com.squareup.okhttp3:okhttp:4.9.3")
-	implementation("com.michael-bull.kotlin-result:kotlin-result:1.1.14")
+	implementation("com.squareup.okhttp3:okhttp:4.10.0")
+	implementation("cc.ekblad:4koma:1.1.0")
+
+	r8("com.android.tools:r8:3.3.28")
 }
 
 application {
-	mainClassName = "link.infra.packwiz.installer.RequiresBootstrap"
+	mainClass.set("link.infra.packwiz.installer.RequiresBootstrap")
 }
 
 val gitVersion: groovy.lang.Closure<*> by extra
@@ -60,8 +65,9 @@ licenseReport {
 }
 
 tasks.shadowJar {
-	exclude("**/*.kotlin_metadata")
-	exclude("**/*.kotlin_builtins")
+	// 4koma uses kotlin-reflect; requires Kotlin metadata
+	//exclude("**/*.kotlin_metadata")
+	//exclude("**/*.kotlin_builtins")
 	exclude("META-INF/maven/**/*")
 	exclude("META-INF/proguard/**/*")
 
@@ -73,73 +79,100 @@ tasks.shadowJar {
 	exclude("META-INF/NOTICE.txt")
 }
 
-tasks.register<proguard.gradle.ProGuardTask>("shrinkJar") {
-	injars(tasks.shadowJar)
-	outjars("build/libs/" + tasks.shadowJar.get().outputs.files.first().name.removeSuffix(".jar") + "-shrink.jar")
-	if (System.getProperty("java.version").startsWith("1.")) {
-		libraryjars("${System.getProperty("java.home")}/lib/rt.jar")
-		libraryjars("${System.getProperty("java.home")}/lib/jce.jar")
-	} else {
-		// Use jmods for Java 9+
-		val mods = listOf("java.base", "java.logging", "java.desktop", "java.sql")
-		for (mod in mods) {
-			libraryjars(mapOf(
-				"jarfilter" to "!**.jar",
-				"filter" to "!module-info.class"
-			), "${System.getProperty("java.home")}/jmods/$mod.jmod")
-		}
+val shrinkJar by tasks.registering(JavaExec::class) {
+	val rules = file("src/main/proguard.txt")
+	val r8File = base.libsDirectory.file(provider {
+		base.archivesName.get() + "-" + project.version + "-all-shrink.jar"
+	})
+	dependsOn(configurations.named("runtimeClasspath"))
+	inputs.files(tasks.shadowJar, rules)
+	outputs.file(r8File)
+
+	classpath(r8)
+	mainClass.set("com.android.tools.r8.R8")
+	args = mutableListOf(
+		"--release",
+		"--classfile",
+		"--output", r8File.get().toString(),
+		"--pg-conf", rules.toString(),
+		"--lib", System.getProperty("java.home"),
+		*(if (System.getProperty("java.version").startsWith("1.")) {
+			// javax.crypto, necessary on <1.9 for compiling Okio
+			arrayOf("--lib", System.getProperty("java.home") + "/lib/jce.jar")
+		} else { arrayOf() }),
+		tasks.shadowJar.get().archiveFile.get().asFile.toString()
+	)
+}
+
+// MANIFEST.MF must be one of the first 2 entries in the zip for JarInputStream to see it
+// Gradle's JAR creation handles this whereas R8 doesn't, so the dist JAR is repacked
+val distJar by tasks.registering(Jar::class) {
+	from(shrinkJar.map { zipTree(it.outputs.files.singleFile) })
+	archiveClassifier.set("all-repacked")
+	manifest {
+		from(shrinkJar.map { zipTree(it.outputs.files.singleFile).matching {
+			include("META-INF/MANIFEST.MF")
+		}.singleFile })
 	}
+}
 
-	keep("class link.infra.packwiz.installer.** { *; }")
-	dontoptimize()
-	dontobfuscate()
-
-	// Used by Okio and OkHttp
-	dontwarn("org.codehaus.mojo.animal_sniffer.*")
-	dontwarn("okhttp3.internal.platform.**")
-	dontwarn("org.conscrypt.**")
-	dontwarn("org.bouncycastle.**")
-	dontwarn("org.openjsse.**")
+artifacts {
+	add("distJarOutput", distJar) {
+		classifier = "dist"
+	}
 }
 
 // Used for vscode launch.json
-tasks.register<Copy>("copyJar") {
-	from(tasks.named("shrinkJar"))
+val copyJar by tasks.registering(Copy::class) {
+	from(distJar)
 	rename("packwiz-installer-(.*)\\.jar", "packwiz-installer.jar")
-	into("build/libs/")
+	into(layout.buildDirectory.dir("dist"))
+	outputs.file(layout.buildDirectory.dir("dist").map { it.file("packwiz-installer.jar") })
 }
 
 tasks.build {
-	dependsOn("copyJar")
+	dependsOn(copyJar)
 }
 
-if (project.hasProperty("github.token")) {
-	githubRelease {
-		owner("comp500")
-		repo("packwiz-installer")
-		tagName("${project.version}")
-		releaseName("Release ${project.version}")
-		draft(true)
-		token(findProperty("github.token") as String? ?: "")
-		releaseAssets(tasks.jar.get().destinationDirectory.file("packwiz-installer.jar").get())
-	}
+githubRelease {
+	owner("comp500")
+	repo("packwiz-installer")
+	tagName("${project.version}")
+	releaseName("Release ${project.version}")
+	draft(true)
+	token(findProperty("github.token") as String?)
+	releaseAssets(layout.buildDirectory.dir("dist").map { it.file("packwiz-installer.jar") }.get())
+}
 
-	tasks.githubRelease {
-		dependsOn(tasks.build)
-	}
+tasks.githubRelease {
+	dependsOn(copyJar)
+	enabled = project.hasProperty("github.token") && project.findProperty("release") == "true"
+}
+
+tasks.publish {
+	dependsOn(tasks.githubRelease)
 }
 
 tasks.compileKotlin {
 	kotlinOptions {
 		jvmTarget = "1.8"
-		freeCompilerArgs = listOf("-Xjvm-default=enable", "-Xallow-result-return-type", "-Xopt-in=kotlin.io.path.ExperimentalPathApi")
+		freeCompilerArgs = listOf("-Xjvm-default=all", "-Xallow-result-return-type", "-opt-in=kotlin.io.path.ExperimentalPathApi", "-Xlambdas=indy")
 	}
 }
 tasks.compileTestKotlin {
 	kotlinOptions {
 		jvmTarget = "1.8"
-		freeCompilerArgs = listOf("-Xjvm-default=enable", "-Xallow-result-return-type", "-Xopt-in=kotlin.io.path.ExperimentalPathApi")
+		freeCompilerArgs = listOf("-Xjvm-default=all", "-Xallow-result-return-type", "-opt-in=kotlin.io.path.ExperimentalPathApi", "-Xlambdas=indy")
 	}
+}
+
+val javaComponent = components["java"] as AdhocComponentWithVariants
+javaComponent.addVariantsFromConfiguration(distJarOutput) {
+	mapToMavenScope("runtime")
+	mapToOptional()
+}
+javaComponent.withVariantsFromConfiguration(configurations["shadowRuntimeElements"]) {
+	skip()
 }
 
 if (project.hasProperty("bunnycdn.token")) {
@@ -154,7 +187,11 @@ if (project.hasProperty("bunnycdn.token")) {
 		}
 		repositories {
 			maven {
-				url = uri("https://storage.bunnycdn.com/comp-maven")
+				url = if (project.findProperty("release") == "true") {
+					uri("https://storage.bunnycdn.com/comp-maven/repository/release")
+				} else {
+					uri("https://storage.bunnycdn.com/comp-maven/repository/snapshot")
+				}
 				credentials(HttpHeaderCredentials::class) {
 					name = "AccessKey"
 					value = findProperty("bunnycdn.token") as String?

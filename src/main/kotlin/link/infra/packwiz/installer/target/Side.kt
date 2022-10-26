@@ -1,5 +1,7 @@
 package link.infra.packwiz.installer.target
 
+import cc.ekblad.toml.model.TomlValue
+import cc.ekblad.toml.tomlMapper
 import com.google.gson.annotations.SerializedName
 
 enum class Side {
@@ -15,12 +17,12 @@ enum class Side {
 	private val depSides: Array<Side>?
 
 	constructor(sideName: String) {
-		this.sideName = sideName.toLowerCase()
+		this.sideName = sideName.lowercase()
 		depSides = null
 	}
 
 	constructor(sideName: String, depSides: Array<Side>) {
-		this.sideName = sideName.toLowerCase()
+		this.sideName = sideName.lowercase()
 		this.depSides = depSides
 	}
 
@@ -42,13 +44,18 @@ enum class Side {
 
 	companion object {
 		fun from(name: String): Side? {
-			val lowerName = name.toLowerCase()
+			val lowerName = name.lowercase()
 			for (side in values()) {
 				if (side.sideName == lowerName) {
 					return side
 				}
 			}
 			return null
+		}
+
+		fun mapper() = tomlMapper {
+			encoder { it: Side -> TomlValue.String(it.sideName) }
+			decoder { it: TomlValue.String -> from(it.value) ?: throw Exception("Invalid side name ${it.value}") }
 		}
 	}
 }

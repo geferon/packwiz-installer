@@ -28,7 +28,10 @@ class GUIHandler : IUserInterface {
 		set(value) {
 			optionalSelectedLatch.countDown()
 			field = value
+			cancelCallback?.invoke()
 		}
+	@Volatile
+	override var cancelCallback: (() -> Unit)? = null
 	var okButtonPressed = false
 		set(value) {
 			optionalSelectedLatch.countDown()
@@ -202,17 +205,16 @@ class GUIHandler : IUserInterface {
 
 
 			val options = arrayOf("Cancel", "Continue anyways", "Update")
-			val result = JOptionPane.showOptionDialog(frmPackwizlauncher,
-					message,
+			val result = JOptionPane.showOptionDialog(frmPackwizlauncher, message,
 					"Updating MultiMC versions",
-					JOptionPane.YES_NO_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[0])
+					JOptionPane.YES_NO_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[2])
 			future.complete(
-					when (result) {
-						JOptionPane.CLOSED_OPTION, 0 -> IUserInterface.UpdateConfirmationResult.CANCELLED
-						1 -> IUserInterface.UpdateConfirmationResult.CONTINUE
-						2 -> IUserInterface.UpdateConfirmationResult.UPDATE
-						else -> IUserInterface.UpdateConfirmationResult.CANCELLED
-					}
+				when (result) {
+					JOptionPane.CLOSED_OPTION, 0 -> IUserInterface.UpdateConfirmationResult.CANCELLED
+					1 -> IUserInterface.UpdateConfirmationResult.CONTINUE
+					2 -> IUserInterface.UpdateConfirmationResult.UPDATE
+					else -> IUserInterface.UpdateConfirmationResult.CANCELLED
+				}
 			)
 		}
 		return future.get()
